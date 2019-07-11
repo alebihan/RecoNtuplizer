@@ -156,16 +156,15 @@ private:
   
   
   int tau_size, tau_charge[kMaxTau];
-  float tau_decaymode[kMaxTau], tau_reliso[kMaxTau], tau_pt[kMaxTau], tau_eta[kMaxTau], tau_phi[kMaxTau], tau_mass[kMaxTau], tau_isofunction[kMaxTau];
-  uint32_t tau_isopass[kMaxTau];
+  float tau_decaymode[kMaxTau], tau_combinediso[kMaxTau], tau_pt[kMaxTau], tau_eta[kMaxTau], tau_phi[kMaxTau], tau_mass[kMaxTau], tau_isofunction[kMaxTau], tau_neutraliso[kMaxTau], tau_chargediso[kMaxTau];
+  uint32_t tau_combinedisopass[kMaxTau];
   
   int jet_size; 
   float jet_pt[kMaxJet], jet_eta[kMaxJet], jet_phi[kMaxJet], jet_mass[kMaxJet];
   uint32_t jet_idpass[kMaxJet];
-  //float jet_bMVA[kMaxJet];
-  //float jet_DeepCSV[kMaxJet];
+  float jet_bMVA[kMaxJet];
+  float jet_DeepCSV[kMaxJet];
   float jet_DeepJET[kMaxJet];
-  uint32_t jet_btag[kMaxJet];
   
   int met_size;
   float met_pt[kMaxMissingET],met_phi[kMaxMissingET];
@@ -256,9 +255,11 @@ Validator::Validator(const edm::ParameterSet& iConfig):
     mytree->Branch("tau_mass",tau_mass, "tau_mass[tau_size]/F");
     mytree->Branch("tau_charge",tau_charge, "tau_charge[tau_size]/I");
     mytree->Branch("tau_decaymode",tau_decaymode, "tau_decaymode[tau_size]/F");
-    mytree->Branch("tau_reliso",tau_reliso, "tau_reliso[tau_size]/F");
+    mytree->Branch("tau_combinediso",tau_combinediso, "tau_combinediso[tau_size]/F");
+    mytree->Branch("tau_chargediso",tau_chargediso, "tau_chargediso[tau_size]/F");
+    mytree->Branch("tau_neutraliso",tau_neutraliso, "tau_neutraliso[tau_size]/F");
     mytree->Branch("tau_isofunction",tau_isofunction, "tau_isofunction[tau_size]/F");
-    mytree->Branch("tau_isopass", tau_isopass, "tau_isopass[tau_size]/i");
+    mytree->Branch("tau_combinedisopass", tau_combinedisopass, "tau_combinedisopass[tau_size]/i");
     
     
     mytree->Branch("jet_size",&jet_size, "jet_size/I");
@@ -267,10 +268,9 @@ Validator::Validator(const edm::ParameterSet& iConfig):
     mytree->Branch("jet_phi",jet_phi, "jet_phi[jet_size]/F");
     mytree->Branch("jet_mass",jet_mass, "jet_mass[jet_size]/F");
     mytree->Branch("jet_idpass", jet_idpass, "jet_idpass[jet_size]/i");
-    //mytree->Branch("jet_bmva",jet_bMVA, "jet_bmva[jet_size]/F");
-    //mytree->Branch("jet_DeepCSV",jet_DeepCSV,"jet_DeepCSV[jet_size]/F");
+    mytree->Branch("jet_bmva",jet_bMVA, "jet_bmva[jet_size]/F");
+    mytree->Branch("jet_DeepCSV",jet_DeepCSV,"jet_DeepCSV[jet_size]/F");
     mytree->Branch("jet_DeepJET",jet_DeepJET,"jet_DeepJET[jet_size]/F");
-    mytree->Branch("jet_btag",jet_btag,"jet_btag[jet_size]/i");
     
     
     mytree->Branch("met_size",&met_size, "met_size/I");
@@ -665,22 +665,28 @@ Validator::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
      tau_mass[tau_size]        = taus->at(it).mass();
      tau_charge[tau_size]      = taus->at(it).charge();
      tau_decaymode[tau_size]   = taus->at(it).decayMode();
-     float ChargedIsoTau       = taus->at(it).tauID("chargedIsoPtSumdR03");
-     float NeutralIsoTau       = taus->at(it).tauID("neutralIsoPtSumdR03");
-     tau_reliso[tau_size]      = ChargedIsoTau + 0.2*max(0.,NeutralIsoTau - 5.) / taus->at(it).pt();
+     tau_chargediso[tau_size]  = taus->at(it).tauID("chargedIsoPtSum");
+     tau_neutraliso[tau_size]  = taus->at(it).tauID("neutralIsoPtSumdR03");
+     
+     
+     if (std::abs(tau_eta[tau_size])<1.4)
+       tau_combinediso[tau_size]      = tau_chargediso[tau_size] + 0.2*max(0.,tau_neutraliso[tau_size] - 5.);
+     else 
+       tau_combinediso[tau_size]      = tau_chargediso[tau_size] + 0.2*max(0.,tau_neutraliso[tau_size] - 1.);
+       
      tau_isofunction[tau_size] = calculate_demetraIsolation(taus->at(it));
      
-     if(tau_reliso[tau_size] < 0.1)
-       tau_isopass[tau_size] |= 1 << 0;
+     if(tau_combinediso[tau_size] < 1.2)
+       tau_combinedisopass[tau_size] |= 1 << 0;
      
-     if(tau_reliso[tau_size] < 0.2)
-       tau_isopass[tau_size] |= 1 << 1;
+     if(tau_combinediso[tau_size] < 2.)
+       tau_combinedisopass[tau_size] |= 1 << 1;
 
-     if(tau_reliso[tau_size] < 0.3)
-	 tau_isopass[tau_size] |= 1 << 2;
+     if(tau_combinediso[tau_size] < 4.)
+	 tau_combinedisopass[tau_size] |= 1 << 2;
      
-     if(tau_reliso[tau_size] < 0.4)
-       tau_isopass[tau_size] |= 1 << 3;
+     if(tau_combinediso[tau_size] < 5.)
+       tau_combinedisopass[tau_size] |= 1 << 3;
      
 
      tau_size++;
@@ -723,30 +729,24 @@ Validator::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
        if(isTight)
 	 jet_idpass[jet_size] |= 1 << 2;
        
-       //jet_bMVA[jet_size]         = (float) jets->at(ij).bDiscriminator("pfCombinedMVAV2BJetTags");
-       //float DeepCSVb   = (float) jets->at(ij).bDiscriminator("pfDeepCSVJetTags:probb");
-       //float DeepCSVbb  = (float) jets->at(ij).bDiscriminator("pfDeepCSVJetTags:probbb");
-       //jet_DeepCSV[jet_size]  = DeepCSVb + DeepCSVbb;
+       jet_bMVA[jet_size]         = (float) jets->at(ij).bDiscriminator("pfCombinedMVAV2BJetTags");
+//$$       jet_deepcsvtag1[jet_size]  = (float) jets->at(ij).bDiscriminator("pfDeepCSVJetTags:probb");
+//$$       jet_deepcsvtag2[jet_size]  = (float) jets->at(ij).bDiscriminator("pfDeepCSVJetTags:probbb");
+//$$
+       float DeepCSVb   = (float) jets->at(ij).bDiscriminator("pfDeepCSVJetTags:probb");
+       float DeepCSVbb  = (float) jets->at(ij).bDiscriminator("pfDeepCSVJetTags:probbb");
+       jet_DeepCSV[jet_size]  = DeepCSVb + DeepCSVbb;
 
        float DeepJETb    = (float) jets->at(ij).bDiscriminator("pfDeepFlavourJetTags:probb");
        float DeepJETbb   = (float) jets->at(ij).bDiscriminator("pfDeepFlavourJetTags:probbb");
        float DeepJETlepb = (float) jets->at(ij).bDiscriminator("pfDeepFlavourJetTags:problepb");
        jet_DeepJET[jet_size]  = (DeepJETb > -5) ? DeepJETb + DeepJETbb + DeepJETlepb : -10;
-       
-       if(jet_DeepJET[jet_size] > 0.054 )
-	 jet_btag[jet_size] |= 1 << 0; 
-
-       if(jet_DeepJET[jet_size] > 0.283 )
-	 jet_btag[jet_size] |= 1 << 1; 
-
-       if(jet_DeepJET[jet_size] > 0.668 )
-	 jet_btag[jet_size] |= 1 << 2; 
-       
+//$$
+          
        if(debug_)
 	 {
-	   //std::cout<<"Btaggers::::::::pfCombinedMVAV2BJetTags/pfDeepCSVJetTags:probb/pfDeepCSVJetTags:probbb:::::::::::::"<<std::endl;
-	   //std::cout<<jet_bMVA[jet_size]<<" / "<< jet_DeepCSV[jet_size] <<" / "<< jet_DeepJET[jet_size] <<std::endl;
-	   std::cout<<"jet_DeepJET: "<< jet_DeepJET[jet_size] <<std::endl;
+	   std::cout<<"Btaggers::::::::pfCombinedMVAV2BJetTags/pfDeepCSVJetTags:probb/pfDeepCSVJetTags:probbb:::::::::::::"<<std::endl;
+	   std::cout<<jet_bMVA[jet_size]<<" / "<< jet_DeepCSV[jet_size] <<" / "<< jet_DeepJET[jet_size] <<std::endl;
 	 }
        jet_size++;
        if(jet_size>kMaxJet) break;
@@ -874,7 +874,8 @@ float Validator::calculate_demetraIsolation(const pat::Tau& tau)const{
       }
   }
   */
-  //return (isoDR03pt08dz015 + 0.2 * std::max(0., gamma_DR03sum - 5.))/tau.pt();
+  // if ( std::abs(cand->eta()) < 1.4) return (isoDR03pt08dz015 + 0.2 * std::max(0., gamma_DR03sum - 5.));
+  // else return (isoDR03pt08dz015 + 0.2 * std::max(0., gamma_DR03sum - 1.));
   return 1.;
     
   
